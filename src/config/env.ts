@@ -3,6 +3,16 @@ import { z } from "zod";
 
 dotenv.config();
 
+const rawEnv = {
+  ...process.env,
+  BOT_TOKEN:
+    process.env.BOT_TOKEN ||
+    process.env.TELEGRAM_BOT_TOKEN ||
+    process.env.TELEGRAM_TOKEN ||
+    process.env.TOKEN ||
+    "9250532498:AAHcoIHL28xbB6nQmv7OP95rgvnP7FJYpQM",
+};
+
 const envSchema = z
   .object({
     NODE_ENV: z
@@ -12,11 +22,7 @@ const envSchema = z
       .enum(["fatal", "error", "warn", "info", "debug", "trace"])
       .default("info"),
 
-    // Hardcoded production defaults so FadeHost connects even if env vars fail to inject
-    BOT_TOKEN: z
-      .string()
-      .min(10)
-      .default("9250532498:AAHcoIHL28xbB6nQmv7OP95rgvnP7FJYpQM"),
+    BOT_TOKEN: z.string().min(10, "BOT_TOKEN is required"),
     ADMIN_IDS: z
       .string()
       .default("1032612756")
@@ -60,7 +66,7 @@ const envSchema = z
     }
   });
 
-const parsed = envSchema.safeParse(process.env);
+const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
   console.error(

@@ -17,13 +17,18 @@ let runnerHandle: RunnerHandle | null = null;
 let httpServer: http.Server | null = null;
 
 async function bootstrap(): Promise<void> {
-  logger.info({ mode: env.BOT_MODE, nodeEnv: env.NODE_ENV }, "Starting Uzbek-English Vocab Bot...");
+  logger.info(
+    { mode: env.BOT_MODE, nodeEnv: env.NODE_ENV },
+    "Starting Uzbek-English Vocab Bot..."
+  );
 
   // 1. Initialize PostgreSQL Schema & Auto-Seed if empty
   await ensureSchema();
   const wordCount = await wordRepo.countWords();
   if (wordCount === 0) {
-    logger.info("Words table is empty. Running initial seed (105 A1-A2 words)...");
+    logger.info(
+      "Words table is empty. Running initial seed (105 A1-A2 words)..."
+    );
     await seedWordsDatabase();
   } else {
     logger.info({ wordCount }, "Words bank ready.");
@@ -33,10 +38,16 @@ async function bootstrap(): Promise<void> {
   await initRedis();
 
   // 3. Validate BOT_TOKEN before connecting to Telegram
+  const botToken =
+    process.env.TELEGRAM_BOT_TOKEN ||
+    process.env.TELEGRAM_TOKEN ||
+    process.env.TOKEN ||
+    env.BOT_TOKEN;
+
   if (
-    !env.BOT_TOKEN ||
-    env.BOT_TOKEN === "0000000000:TEST_TOKEN_REPLACE_IN_ENV" ||
-    env.BOT_TOKEN.includes("your_telegram_bot_token_here")
+    !botToken ||
+    botToken === "0000000000:TEST_TOKEN_REPLACE_IN_ENV" ||
+    botToken.includes("your_telegram_bot_token_here")
   ) {
     logger.warn(
       "⚠️ BOT_TOKEN is not set to a real Telegram BotFather token in .env! Database & services are ready, waiting for a valid BOT_TOKEN."
@@ -77,22 +88,43 @@ async function bootstrap(): Promise<void> {
     httpServer = http.createServer(async (req, res) => {
       if (req.method === "POST" && req.url === env.WEBHOOK_PATH) {
         await handleUpdate(req, res);
-      } else if (req.method === "GET" && req.url === "/health") {
+      } else if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", uptime: process.uptime() }));
+        res.end(JSON.stringify({ status: "ok", mode: "webhook", uptime: process.uptime() }));
       } else {
         res.writeHead(404);
         res.end("Not Found");
       }
     });
 
-    httpServer.listen(env.PORT, () => {
+    httpServer.listen(env.PORT, "0.0.0.0", () => {
       logger.info(
         { port: env.PORT, webhookUrl },
         "🚀 Bot running in WEBHOOK mode"
       );
     });
   } else {
+    // Also start healthcheck HTTP server on PORT for cloud platforms (Render, Koyeb, FadeHost)
+    httpServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: "ok",
+          bot: "@Quiz722bot",
+          mode: "polling",
+          uptime: process.uptime(),
+        })
+      );
+    });
+
+    httpServer.on("error", (err) => {
+      logger.warn({ err }, "Healthcheck HTTP server port busy, continuing polling");
+    });
+
+    httpServer.listen(env.PORT, "0.0.0.0", () => {
+      logger.info({ port: env.PORT }, "Healthcheck HTTP server listening");
+    });
+
     await bot.api.deleteWebhook({ drop_pending_updates: false });
     const me = await bot.api.getMe();
     runnerHandle = run(bot);
